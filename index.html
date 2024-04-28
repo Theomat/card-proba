@@ -55,6 +55,13 @@
                 return seen.has(k) ? false : seen.add(k);
             });
         }
+        Object.prototype.copy = function () {
+            const self = this;
+            return Object.keys(self).reduce(function (result, key) {
+                result[key] = self[key];
+                return result;
+            }, {});
+        };
 
         function to_array(x) {
             return x instanceof Array ? x : [x];
@@ -85,34 +92,13 @@
             return out;
         }
 
-        function* permutations(array) {
-            var length = array.length,
-                c = Array(length).fill(0),
-                i = 1, k, p;
-
-            yield array.slice();
-            while (i < length) {
-                if (c[i] < i) {
-                    k = i % 2 && c[i];
-                    p = array[i];
-                    array[i] = array[k];
-                    array[k] = p;
-                    ++c[i];
-                    i = 1;
-                    yield array.slice();
-                } else {
-                    c[i] = 0;
-                    ++i;
-                }
-            }
-        }
-
         // Real Functions
         const MAX_COPIES = 4;
         const TOTAL_CARDS = 13 * MAX_COPIES;
 
         function deck_for_hand(hand) {
-            const deck = { MAX_COPIES: 13 };
+            const deck = {};
+            deck[MAX_COPIES] = 13;
             for (const qty of range(0, MAX_COPIES - 1)) {
                 deck[qty] = 0;
             }
@@ -120,6 +106,7 @@
                 deck[MAX_COPIES] -= 1;
                 deck[MAX_COPIES - qty] += 1;
             }
+            return deck;
         }
 
         function cards_in_deck(deck) {
@@ -128,6 +115,17 @@
                 n += deck[c] * c;
             }
             return n;
+        }
+
+        function combination_in_deck(combination, deck) {
+            const cpy = deck.copy();
+            for (const c of combination) {
+                cpy[MAX_COPIES - c] -= 1;
+                if (cpy[MAX_COPIES - c] < 0) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         function combination_to_string(combination) {
@@ -147,91 +145,118 @@
             return out;
         }
 
-        const MAX_CARDS_IN_COMBINATION = 4;
+        const MAX_CARDS_IN_COMBINATION = 16;
         const ALL_COMBINATIONS = cartesian(...(range(1, 8).map((x) => range(2, 4).concat([0])))).map(to_array).map((x) => x.filter((y) => y > 0).toSorted()).filter((x) => x.sum() <= MAX_CARDS_IN_COMBINATION && x.length > 0).uniques(combination_to_string);
         const MAX_LENGTH = ALL_COMBINATIONS.map(combination_to_string).reduce((a, x) => Math.max(a, x.length), 0) + 1;
         const ALL_COMBINATIONS_NAME = ALL_COMBINATIONS.map(combination_to_string).map((x) => (x + ":").padEnd(MAX_LENGTH))
 
-
-        function prob(cards, hand, to_draw, other_suites_used, removed, div) {
-            if (cards.every((x, i) => x <= hand[i])) {
-                return 1;
+        function sub_deck(deck, removed) {
+            const cpy = deck.copy();
+            for (const pair of removed) {
+                const init = pair[0];
+                const drawn = pair[1];
+                cpy[init] -= 1;
+                cpy[init - drawn] += 1;
             }
-            const out = cards.reduce((a, x, i) => x > hand[i] ? a * combinations(x - hand[i], MAX_COPIES - hand[i]) : a, 1);
-            const asked_cards = cards.sum() - hand.filter((x, i) => i < cards.length).map((x, i) => Math.min(x, cards[i])).sum();
-            const remaining_to_draw = to_draw - hand.sum() - asked_cards;
-            if (remaining_to_draw < 0) {
-                return 0;
-            }
-            let other_cases = 0;
-            let unused = hand.filter((x, i) => i >= cards.length);
-            const cards_that_can_be_drawn = TOTAL_CARDS - MAX_COPIES * cards.length - removed - unused.sum();
-            if (remaining_to_draw > cards_that_can_be_drawn) {
-                return 1;
-            }
-            console.log("\t\tcards:", cards, "hand:", hand, "to_draw:", to_draw, "remaining_to_draw:", remaining_to_draw, "cards_that_can_be_drawn:", cards_that_can_be_drawn, "other_suites:", other_suites_used, "removed:", removed);
-            if (unused.length > 0) {
-                for (const c of cartesian(...unused.map((x) => range(0, MAX_COPIES - x)))) {
-                    const carr = to_array(c);
-                    console.log("\t\ttaking:", carr);
-                    const proba = carr.reduce((a, x, i) => a * combinations(x, MAX_COPIES - unused[i]), 1);
-                    if (carr.sum() > remaining_to_draw) {
-                        continue;
-                    }
-                    other_cases += combinations(remaining_to_draw - carr.sum(), cards_that_can_be_drawn) * proba;
-                }
-            } else {
-                other_cases = combinations(remaining_to_draw, cards_that_can_be_drawn)
-            }
-            const p = out * other_cases / div;
-            console.log("\t\tout=", out, "other_cases=", other_cases, "p=", p);
-            return p;
-        }
-        /**
-         *  cards_combi=[3, 1] check proba of triple and one card
-         *  hand=[1, 0] knowing that we already have one card in hand for the triple
-         *  given n total card from a pack of TOTAL_CARDS - removed
-         * */
-        function prob_with_hand(cards, allowed_hand, to_draw) {
-            let total = 0;
-            let n = 0;
-            let computed_zero = false;
-            const cards_drawn = allowed_hand.sum();
-            const mask = allowed_hand.map((x) => [true, false]);
-            const div = combinations(to_draw - cards_drawn, TOTAL_CARDS - cards_drawn);
-            for (const base_hand of permutations(allowed_hand)) {
-                for (const h of cartesian(...mask)) {
-                    const hand_mask = to_array(h);
-                    const used_hand = base_hand.map((x, i) => hand_mask[i] ? x : 0);
-                    if (computed_zero && (used_hand.sum() == 0)) {
-                        continue;
-                    }
-                    n += 1;
-                    while (used_hand.length < cards.length) {
-                        used_hand.push(0);
-                    }
-                    const p = prob(cards, used_hand, to_draw - cards_drawn + used_hand.sum(), hand_mask.filter((x) => !x).length, cards_drawn - used_hand.sum(), div)
-                    total = Math.max(total, p);
-                    console.log("\t\tp=", p);
-
-                    computed_zero = computed_zero || (used_hand.sum() == 0);
-                }
-            }
-            return total;
+            return cpy;
         }
 
-        function prob_at_least(combination, hand, to_draw) {
+        function* configs_after_draw(deck, to_draw, n = 1) {
+            if (to_draw == 0)
+                yield { deck: deck, n: n }
+            else {
+                const out = new Set();
+                const decks = [];
+                const multiplicities = [];
+                for (const d of configs_after_draw(deck, to_draw - 1, n)) {
+                    if (out.has(hash(d.deck))) {
+                        const i = decks.indexOf(d.deck);
+                        multiplicities[i] += d.n;
+                        continue
+                    }
+                    out.add(hash(d.deck));
+                    decks.push(d.deck);
+                    multiplicities.push(d.n);
+                }
+                for (let i = 0; i < decks.length; i++) {
+                    let x = decks[i];
+                    for (const key of Object.keys(x)) {
+                        if (key == 0 || x[key] == 0)
+                            continue
+                        const cpy = x.copy();
+                        cpy[key] -= 1;
+                        cpy[key - 1] += 1;
+                        const c = n * x[key];
+                        yield { deck: cpy, n: c * multiplicities[i] }
+                    }
+                }
+            }
+        }
+
+        function hash(deck) {
+            let out = 0;
+            for (let i = 0; i < MAX_COPIES; i++) {
+                out = out * 17 + deck[i];
+            }
+            return out;
+        }
+
+        function* configurations(hand, to_draw) {
+            const deck = deck_for_hand(hand);
+            const out = new Set();
+            const decks = [];
+            const multiplicities = [];
+            // console.log("deck:", deck, "hand:", hand, "to_draw:", to_draw);
+            for (const d of configs_after_draw(deck, to_draw)) {
+                if (out.has(hash(d.deck))) {
+                    const i = decks.indexOf(d.deck);
+                    multiplicities[i] += d.n;
+                    continue
+                }
+                out.add(hash(d.deck));
+                decks.push(d.deck);
+                multiplicities.push(d.n);
+            }
+            for (let i = 0; i < decks.length; i++) {
+                yield { deck: decks[i], n: multiplicities[i] };
+            }
+        }
+
+
+        function prob_at_least(combinations, hand, to_draw) {
             const real_hand = hand.length == 0 ? [0] : hand;
-            const possibles = combination.map((x) => range(x, MAX_COPIES));
-            let total = 0;
-            for (const candidate of cartesian(...possibles)) {
-                const c = to_array(candidate);
-                console.log("\tasking for:", combination_to_string(c));
-                const p = prob_with_hand(c, real_hand, to_draw);
-                console.log("\treq:", c, "p=", p);
-                total += p;
+            const cards_in_deck = TOTAL_CARDS - real_hand.sum()
+            const reverse = false; //to_draw > cards_in_deck / 2;
+            if (reverse) {
+                to_draw = cards_in_deck - (to_draw - real_hand.sum());
+            } else {
+                to_draw -= real_hand.sum()
             }
-            return Math.min(1, total);
+            const output = combinations.map((x) => 0);
+            const nmap = combinations.map((x) => 0);
+            for (const end_config of configurations(real_hand, to_draw)) {
+                let index = 0;
+                console.log("\tdeck:", end_config);
+                for (const combination of combinations) {
+                    // console.log("\t\t", combination_to_string(combination), "deck:", end_config.deck, "n=", end_config.n);
+                    const possibles = combination.map((x) => range(x, MAX_COPIES));
+                    const allowed = cartesian(...possibles).map(to_array);
+                    let total = 0;
+                    let n = 0;
+                    for (const combi of allowed) {
+                        const inside = combination_in_deck(combi, end_config.deck);
+                        if (inside == !reverse) {
+                            total = end_config.n;
+                            break;
+                        }
+                    }
+                    output[index] += total;
+                    nmap[index] += end_config.n;
+                    // console.log("\t\t > total=", total, "n=", n);
+                    index += 1;
+                }
+            }
+            return output.map((x, i) => x / nmap[i]);
         }
 
         document.addEventListener('DOMContentLoaded', function () {
@@ -245,12 +270,14 @@
                 const hand = handsInput.split(',').map(item => parseInt(item, 10)).filter((x) => x <= MAX_COPIES);
 
                 // Your logic for calculating the result goes here
-                if (!isNaN(numDraws)) {
+                if (!isNaN(numDraws) || numDraws < 52) {
                     const probas = [];
+                    const P = prob_at_least(ALL_COMBINATIONS, hand, numDraws);
+
                     for (let i = 0; i < ALL_COMBINATIONS.length; i++) {
                         const combination = ALL_COMBINATIONS[i];
                         const name = ALL_COMBINATIONS_NAME[i];
-                        let p = prob_at_least(combination, hand, numDraws);
+                        const p = P[i];
                         if ((p * 100).toFixed(3) > 0) {
                             console.log(name, combination, "p=", p)
                             probas.push([name, p])
