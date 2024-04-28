@@ -39,7 +39,7 @@
     <input type="number" id="numDraws" value="1">
 
     <label for="hand">Hand:</label>
-    <input type="text" id="hand" placeholder="e.g., 2,1 (for e.g., king,ace,ace)">
+    <input type="text" id="hand" placeholder="e.g., k,a,a,10 (for e.g., king,ace,ace,10)">
 
     <pre id="result">Result: </pre>
     <script>
@@ -225,34 +225,23 @@
 
         function prob_at_least(combinations, hand, to_draw) {
             const real_hand = hand.length == 0 ? [0] : hand;
-            const cards_in_deck = TOTAL_CARDS - real_hand.sum()
-            const reverse = false; //to_draw > cards_in_deck / 2;
-            if (reverse) {
-                to_draw = cards_in_deck - (to_draw - real_hand.sum());
-            } else {
-                to_draw -= real_hand.sum()
-            }
+            const cards_in_deck = TOTAL_CARDS - real_hand.sum();
+            to_draw -= real_hand.sum()
             const output = combinations.map((x) => 0);
             const nmap = combinations.map((x) => 0);
             for (const end_config of configurations(real_hand, to_draw)) {
                 let index = 0;
-                console.log("\tdeck:", end_config);
                 for (const combination of combinations) {
-                    // console.log("\t\t", combination_to_string(combination), "deck:", end_config.deck, "n=", end_config.n);
                     const possibles = combination.map((x) => range(x, MAX_COPIES));
                     const allowed = cartesian(...possibles).map(to_array);
-                    let total = 0;
-                    let n = 0;
                     for (const combi of allowed) {
                         const inside = combination_in_deck(combi, end_config.deck);
-                        if (inside == !reverse) {
-                            total = end_config.n;
+                        if (inside) {
+                            output[index] += end_config.n;
                             break;
                         }
                     }
-                    output[index] += total;
                     nmap[index] += end_config.n;
-                    // console.log("\t\t > total=", total, "n=", n);
                     index += 1;
                 }
             }
@@ -267,10 +256,12 @@
                 const handsInput = document.getElementById('hand').value.trim();
 
                 // Parse the hand from the input string
-                const hand = handsInput.split(',').map(item => parseInt(item, 10)).filter((x) => x <= MAX_COPIES);
+                const cards = {};
+                const from_hand = handsInput.split(',').map(item => cards[item] = (cards[item] || 0) + 1);
+                const hand = Object.values(cards);
 
                 // Your logic for calculating the result goes here
-                if (!isNaN(numDraws) || numDraws < 52) {
+                if (!isNaN(numDraws) && numDraws < 52 && numDraws >= hand.sum()) {
                     const probas = [];
                     const P = prob_at_least(ALL_COMBINATIONS, hand, numDraws);
 
