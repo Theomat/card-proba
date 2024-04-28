@@ -126,14 +126,14 @@
 
 
 
-        function* configs_after_draw(deck, to_draw, n = 1) {
+        function* configs_after_draw(deck, to_draw) {
             if (to_draw == 0)
-                yield { deck: deck, n: n }
+                yield { deck: deck, n: 1 }
             else {
                 const out = new Set();
                 const decks = [];
                 const multiplicities = [];
-                for (const d of configs_after_draw(deck, to_draw - 1, n)) {
+                for (const d of configs_after_draw(deck, to_draw - 1)) {
                     const x = d.deck;
                     for (const key of Object.keys(x)) {
                         if (key == 0 || x[key] == 0)
@@ -141,7 +141,7 @@
                         const cpy = x.copy();
                         cpy[key] -= 1;
                         cpy[key - 1] += 1;
-                        const c = n * x[key];
+                        const c = d.n * x[key];
                         if (out.has(hash(cpy))) {
                             const i = decks.indexOf(cpy);
                             multiplicities[i] += c;
