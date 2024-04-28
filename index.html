@@ -169,17 +169,7 @@
                 const decks = [];
                 const multiplicities = [];
                 for (const d of configs_after_draw(deck, to_draw - 1, n)) {
-                    if (out.has(hash(d.deck))) {
-                        const i = decks.indexOf(d.deck);
-                        multiplicities[i] += d.n;
-                        continue
-                    }
-                    out.add(hash(d.deck));
-                    decks.push(d.deck);
-                    multiplicities.push(d.n);
-                }
-                for (let i = 0; i < decks.length; i++) {
-                    let x = decks[i];
+                    let x = d.deck;
                     for (const key of Object.keys(x)) {
                         if (key == 0 || x[key] == 0)
                             continue
@@ -187,8 +177,19 @@
                         cpy[key] -= 1;
                         cpy[key - 1] += 1;
                         const c = n * x[key];
-                        yield { deck: cpy, n: c * multiplicities[i] }
+                        if (out.has(hash(cpy))) {
+                            const i = decks.indexOf(cpy);
+                            multiplicities[i] += c;
+                            continue
+                        }
+                        out.add(hash(cpy));
+                        decks.push(cpy);
+                        multiplicities.push(c);
                     }
+
+                }
+                for (let i = 0; i < decks.length; i++) {
+                    yield { deck: decks[i], n: multiplicities[i] }
                 }
             }
         }
@@ -203,22 +204,8 @@
 
         function* configurations(hand, to_draw) {
             const deck = deck_for_hand(hand);
-            const out = new Set();
-            const decks = [];
-            const multiplicities = [];
-            // console.log("deck:", deck, "hand:", hand, "to_draw:", to_draw);
             for (const d of configs_after_draw(deck, to_draw)) {
-                if (out.has(hash(d.deck))) {
-                    const i = decks.indexOf(d.deck);
-                    multiplicities[i] += d.n;
-                    continue
-                }
-                out.add(hash(d.deck));
-                decks.push(d.deck);
-                multiplicities.push(d.n);
-            }
-            for (let i = 0; i < decks.length; i++) {
-                yield { deck: decks[i], n: multiplicities[i] };
+                yield d;
             }
         }
 
