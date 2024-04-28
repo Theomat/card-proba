@@ -11,7 +11,7 @@
             text-align: center;
             margin: 20px;
         }
-        
+
         label {
             display: block;
             margin-bottom: 5px;
@@ -28,32 +28,48 @@
         }
 
         #result {
-            font-size: 40px;
+            font-size: 30px;
             margin-top: 20px;
         }
     </style>
 </head>
 
 <body>
-    <!-- <label for="deckSize">Deck Size:</label>
-    <input type="number" id="deckSize" value="56"> -->
-
     <label for="numDraws">Number of cards drawn:</label>
     <input type="number" id="numDraws" value="1">
 
-    <label for="combinations">Combinations:</label>
-    <input type="text" id="combinations" placeholder="e.g., 2, 3">
+    <label for="hand">Hand:</label>
+    <input type="text" id="hand" placeholder="e.g., 2,1 (for e.g., king,ace,ace)">
 
-    <div id="result">Result: </div>
-
+    <pre id="result">Result: </pre>
     <script>
-        const MAX_COPIES = 4;
-        const TOTAL_CARDS = MAX_COPIES * 14;
+        // Utilities
+        Array.prototype.sum = function () {
+            return this.reduce((a, b) => a + b, 0);
+        }
+
+        Array.prototype.uniques = function (key = (x) => x) {
+            let seen = new Set();
+            return this.filter(item => {
+                let k = key(item);
+                return seen.has(k) ? false : seen.add(k);
+            });
+        }
+
+        function to_array(x) {
+            return x instanceof Array ? x : [x];
+        }
+
+        function range(start, stop) {
+            return [...Array(stop - start + 1).keys()].map((x) => start + x);
+        }
+        const cartesian = (...a) => a.reduce((a, b) => a.flatMap(d => b.map(e => [d, e].flat())));
+
         const memory = {};
 
         function combinations(tk, n) {
             const k = Math.min(tk, n - tk)
-            if(n in memory && k in memory[n]){
+            if (n in memory && k in memory[n]) {
                 return memory[n][k]
             }
             if (k === 0) {
@@ -62,68 +78,204 @@
                 return 0;
             }
             const out = combinations(k - 1, n - 1) + combinations(k, n - 1);
-            if(! (n in memory)){
+            if (!(n in memory)) {
                 memory[n] = {}
             }
             memory[n][k] = out;
             return out;
         }
 
+        function* permutations(array) {
+            var length = array.length,
+                c = Array(length).fill(0),
+                i = 1, k, p;
 
-        // This computes exact probability
-        function probability(cards_combi, n) {
-            const asked_cards = cards_combi.reduce((sum, card) => sum + card, 0);
-            if (asked_cards > n || cards_combi.some(c => c > MAX_COPIES)) {
+            yield array.slice();
+            while (i < length) {
+                if (c[i] < i) {
+                    k = i % 2 && c[i];
+                    p = array[i];
+                    array[i] = array[k];
+                    array[k] = p;
+                    ++c[i];
+                    i = 1;
+                    yield array.slice();
+                } else {
+                    c[i] = 0;
+                    ++i;
+                }
+            }
+        }
+
+        // Real Functions
+        const MAX_COPIES = 4;
+        const TOTAL_CARDS = 13 * MAX_COPIES;
+
+        function deck_for_hand(hand) {
+            const deck = { MAX_COPIES: 13 };
+            for (const qty of range(0, MAX_COPIES - 1)) {
+                deck[qty] = 0;
+            }
+            for (const qty of hand) {
+                deck[MAX_COPIES] -= 1;
+                deck[MAX_COPIES - qty] += 1;
+            }
+        }
+
+        function cards_in_deck(deck) {
+            let n = 0;
+            for (const c of range(0, MAX_COPIES)) {
+                n += deck[c] * c;
+            }
+            return n;
+        }
+
+        function combination_to_string(combination) {
+            const names = ["Square", "Triple", "Pair"];
+            let out = ""
+            for (const m of range(0, 2)) {
+                let n = combination.filter((x) => x == MAX_COPIES - m).length;
+                if (n > 0 && out.length) {
+                    out += ", ";
+                }
+                if (n == 1) {
+                    out += names[m];
+                } else if (n > 1) {
+                    out += names[m] + " x" + n;
+                }
+            }
+            return out;
+        }
+
+        const MAX_CARDS_IN_COMBINATION = 4;
+        const ALL_COMBINATIONS = cartesian(...(range(1, 8).map((x) => range(2, 4).concat([0])))).map(to_array).map((x) => x.filter((y) => y > 0).toSorted()).filter((x) => x.sum() <= MAX_CARDS_IN_COMBINATION && x.length > 0).uniques(combination_to_string);
+        const MAX_LENGTH = ALL_COMBINATIONS.map(combination_to_string).reduce((a, x) => Math.max(a, x.length), 0) + 1;
+        const ALL_COMBINATIONS_NAME = ALL_COMBINATIONS.map(combination_to_string).map((x) => (x + ":").padEnd(MAX_LENGTH))
+
+
+        function prob(cards, hand, to_draw, other_suites_used, removed, div) {
+            if (cards.every((x, i) => x <= hand[i])) {
+                return 1;
+            }
+            const out = cards.reduce((a, x, i) => x > hand[i] ? a * combinations(x - hand[i], MAX_COPIES - hand[i]) : a, 1);
+            const asked_cards = cards.sum() - hand.filter((x, i) => i < cards.length).map((x, i) => Math.min(x, cards[i])).sum();
+            const remaining_to_draw = to_draw - hand.sum() - asked_cards;
+            if (remaining_to_draw < 0) {
                 return 0;
             }
-            const last_case = combinations(n - asked_cards, TOTAL_CARDS - MAX_COPIES * cards_combi.length);
-            const denominator = cards_combi.reduce((x, c) => x * combinations(c, MAX_COPIES), last_case);
-
-            return denominator / combinations(n, TOTAL_CARDS);
+            let other_cases = 0;
+            let unused = hand.filter((x, i) => i >= cards.length);
+            const cards_that_can_be_drawn = TOTAL_CARDS - MAX_COPIES * cards.length - removed - unused.sum();
+            if (remaining_to_draw > cards_that_can_be_drawn) {
+                return 1;
+            }
+            console.log("\t\tcards:", cards, "hand:", hand, "to_draw:", to_draw, "remaining_to_draw:", remaining_to_draw, "cards_that_can_be_drawn:", cards_that_can_be_drawn, "other_suites:", other_suites_used, "removed:", removed);
+            if (unused.length > 0) {
+                for (const c of cartesian(...unused.map((x) => range(0, MAX_COPIES - x)))) {
+                    const carr = to_array(c);
+                    console.log("\t\ttaking:", carr);
+                    const proba = carr.reduce((a, x, i) => a * combinations(x, MAX_COPIES - unused[i]), 1);
+                    if (carr.sum() > remaining_to_draw) {
+                        continue;
+                    }
+                    other_cases += combinations(remaining_to_draw - carr.sum(), cards_that_can_be_drawn) * proba;
+                }
+            } else {
+                other_cases = combinations(remaining_to_draw, cards_that_can_be_drawn)
+            }
+            const p = out * other_cases / div;
+            console.log("\t\tout=", out, "other_cases=", other_cases, "p=", p);
+            return p;
         }
-        const cartesian =
-                (...a) => a.reduce((a, b) => a.flatMap(d => b.map(e => [d, e].flat())));
-
-        function prob_at_least(cards_combi, n) {
-            const possibles = cards_combi.map((x) => [...Array(MAX_COPIES - x + 1).keys()].map(z => z + x));
+        /**
+         *  cards_combi=[3, 1] check proba of triple and one card
+         *  hand=[1, 0] knowing that we already have one card in hand for the triple
+         *  given n total card from a pack of TOTAL_CARDS - removed
+         * */
+        function prob_with_hand(cards, allowed_hand, to_draw) {
             let total = 0;
-            for(const candidate of cartesian(...possibles)){                
-                if(candidate instanceof Array)
-                    total += probability(candidate, n);
-                else
-                    total += probability([candidate], n);
+            let n = 0;
+            let computed_zero = false;
+            const cards_drawn = allowed_hand.sum();
+            const mask = allowed_hand.map((x) => [true, false]);
+            const div = combinations(to_draw - cards_drawn, TOTAL_CARDS - cards_drawn);
+            for (const base_hand of permutations(allowed_hand)) {
+                for (const h of cartesian(...mask)) {
+                    const hand_mask = to_array(h);
+                    const used_hand = base_hand.map((x, i) => hand_mask[i] ? x : 0);
+                    if (computed_zero && (used_hand.sum() == 0)) {
+                        continue;
+                    }
+                    n += 1;
+                    while (used_hand.length < cards.length) {
+                        used_hand.push(0);
+                    }
+                    const p = prob(cards, used_hand, to_draw - cards_drawn + used_hand.sum(), hand_mask.filter((x) => !x).length, cards_drawn - used_hand.sum(), div)
+                    total = Math.max(total, p);
+                    console.log("\t\tp=", p);
 
+                    computed_zero = computed_zero || (used_hand.sum() == 0);
+                }
             }
             return total;
-
         }
+
+        function prob_at_least(combination, hand, to_draw) {
+            const real_hand = hand.length == 0 ? [0] : hand;
+            const possibles = combination.map((x) => range(x, MAX_COPIES));
+            let total = 0;
+            for (const candidate of cartesian(...possibles)) {
+                const c = to_array(candidate);
+                console.log("\tasking for:", combination_to_string(c));
+                const p = prob_with_hand(c, real_hand, to_draw);
+                console.log("\treq:", c, "p=", p);
+                total += p;
+            }
+            return Math.min(1, total);
+        }
+
         document.addEventListener('DOMContentLoaded', function () {
             // Function to update the result based on input values
             function updateResult() {
                 // const deckSize = parseInt(document.getElementById('deckSize').value, 10);
                 const numDraws = parseInt(document.getElementById('numDraws').value, 10);
-                const combinationsInput = document.getElementById('combinations').value.trim();
+                const handsInput = document.getElementById('hand').value.trim();
 
-                // Parse the combinations from the input string
-                const combinations = combinationsInput.split(',').map(item => parseInt(item, 10)).filter((x) => x <= MAX_COPIES);
+                // Parse the hand from the input string
+                const hand = handsInput.split(',').map(item => parseInt(item, 10)).filter((x) => x <= MAX_COPIES);
 
                 // Your logic for calculating the result goes here
-                if(combinations.length > 0 && !isNaN(numDraws) && combinations.reduce((x, y) => x && !isNaN(y), true)){
-                    const p = prob_at_least(combinations, numDraws);
-                    const result = (p * 100).toFixed(3) + "%";
-    
-                    document.getElementById('result').textContent = result;
+                if (!isNaN(numDraws)) {
+                    const probas = [];
+                    for (let i = 0; i < ALL_COMBINATIONS.length; i++) {
+                        const combination = ALL_COMBINATIONS[i];
+                        const name = ALL_COMBINATIONS_NAME[i];
+                        let p = prob_at_least(combination, hand, numDraws);
+                        if ((p * 100).toFixed(3) > 0) {
+                            console.log(name, combination, "p=", p)
+                            probas.push([name, p])
+                        }
+
+                    }
+                    const sorted_data = probas.toSorted((x, y) => y[1] - x[1]);
+                    const max_proba_length = probas.reduce((a, x) => Math.max(((x[1] * 100).toFixed(3) + "%").length, a), 0);
+                    let text = "";
+                    for (const pair of sorted_data) {
+                        const s = (pair[1] * 100).toFixed(3) + "%";
+                        text += pair[0] + " " + s.padStart(max_proba_length) + "\n";
+                    }
+                    document.getElementById('result').textContent = text;
                 }
             }
 
             // Add event listeners to each input field
             // document.getElementById('deckSize').addEventListener('input', updateResult);
             document.getElementById('numDraws').addEventListener('input', updateResult);
-            document.getElementById('combinations').addEventListener('input', updateResult);
+            document.getElementById('hand').addEventListener('input', updateResult);
 
             updateResult()
         });
-            
+
 
     </script>
 </body>
