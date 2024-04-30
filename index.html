@@ -90,13 +90,16 @@
             return deck;
         }
 
-        function combination_in_deck(combination, deck) {
+        function at_least_combination_in_deck(combination, deck) {
             const cpy = deck.copy();
             for (const c of combination) {
-                cpy[MAX_COPIES - c] -= 1;
-                if (cpy[MAX_COPIES - c] < 0) {
-                    return false;
+                let j = MAX_COPIES - c;
+                while (j >= 0 && cpy[j] == 0) {
+                    j--;
                 }
+                if (j < 0)
+                    return false;
+                cpy[j] -= 1;
             }
             return true;
         }
@@ -122,7 +125,6 @@
         const ALL_COMBINATIONS = cartesian(...(range(1, 8).map((x) => range(2, 4).concat([0])))).map(to_array).map((x) => x.filter((y) => y > 0).toSorted()).filter((x) => x.sum() <= MAX_CARDS_IN_COMBINATION && x.length > 0).uniques(combination_to_string);
         const MAX_LENGTH = ALL_COMBINATIONS.map(combination_to_string).reduce((a, x) => Math.max(a, x.length), 0) + 1;
         const ALL_COMBINATIONS_NAME = ALL_COMBINATIONS.map(combination_to_string).map((x) => (x + ":").padEnd(MAX_LENGTH))
-        const ALL_COMBINATIONS_POSSIBLES = ALL_COMBINATIONS.map((x) => cartesian(...x.map((y) => range(y, MAX_COPIES))).map(to_array));
 
 
 
@@ -183,12 +185,9 @@
             const nmap = ALL_COMBINATIONS.map((x) => 0);
             for (const end_config of configurations(real_hand, to_draw)) {
                 for (let index = 0; index < ALL_COMBINATIONS.length; index++) {
-                    for (const combi of ALL_COMBINATIONS_POSSIBLES[index]) {
-                        const inside = combination_in_deck(combi, end_config.deck);
-                        if (inside) {
-                            output[index] += end_config.n;
-                            break;
-                        }
+                    const inside = at_least_combination_in_deck(ALL_COMBINATIONS[index], end_config.deck);
+                    if (inside) {
+                        output[index] += end_config.n;
                     }
                     nmap[index] += end_config.n;
                 }
